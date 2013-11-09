@@ -94,31 +94,31 @@ probe nfsd.proc4.write.return {
            proc(), probefunc(), dfull, count, offset, stable, begin, delta)
 }
 
+#FIXME: i did not see any call to nfsd.read
 probe nfsd.read {
     elapsed[tid(), probefunc()] = now()
 }
 probe nfsd.read.return {
-    #http://lxr.free-electrons.com/source/fs/nfsd/nfs4proc.c#L987
-    h = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
-    d =  @cast(h, "svc_fh")->fh_dentry
+    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=2.6.34#L1090
+    dfh =  @cast($fhp, "svc_fh")->fh_dentry
 
-    dfull = "null"
-    if (d) {
-        dfull = __complete_path(d)
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
     }
 
-    count = $write->wr_buflen
-    offset = $write->wr_offset
-    stable = $write->wr_stable_how
+    //count = $
+    //offset = $write->wr_offset
+    //stable = $write->wr_stable_how
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
     delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfull, count, offset, stable, begin, delta)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, $count, $offset, $vec, $vlen, begin,
+	   delta)
 }
-
 
 probe nfsd.close {
     elapsed[tid(), probefunc()] = now()
@@ -137,8 +137,7 @@ probe nfsd.rename {
     elapsed[tid(), probefunc()] = now()
 }
 probe nfsd.rename.return {
-     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L1769
-
+    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L1769
     dfh =  @cast($ffhp, "svc_fh")->fh_dentry
     dtfh =  @cast($tfhp, "svc_fh")->fh_dentry
 
@@ -153,6 +152,29 @@ probe nfsd.rename.return {
 
     printf("<%s> <%s> <%s> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, begin, delta)
+}
+
+probe nfsd.unlink {
+    #NFS server removing a file or a directory for client
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.unlink.return {
+    dfh =  @cast($fhp, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    filelen = $flen
+    filename = kernel_string_n($fname, $flen)
+    type = $type
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, filename, type, begin, delta)
 }
 
 probe nfsd.open {
@@ -211,5 +233,4 @@ probe::nfsd.proc.commit — NFS server performing a commit operation for client
 probe::nfsd.proc.read — NFS server reading file for client
 probe::nfsd.proc.remove — NFS server removing a file for client
 
-probe::nfsd.read — NFS server reading data from a file for client
 probe::nfsd.unlink — NFS server removing a file or a directory for client
