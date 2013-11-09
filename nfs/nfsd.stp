@@ -248,10 +248,30 @@ probe nfsd.create.return {
 	   iap_mode, begin, delta)
 }
 
-//FIXME add client ip ?
+#FIXME: did not seem any log comming from this probe
+probe nfsd.commit {
+    #NFS server committing all pending writes to stable storage
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.commit.return {
+    #http://lxr.free-electrons.com/ident?v=2.6.34;i=nfsd_commit
+    dfh =  @cast($fhp, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    flag = $fhp->fh_export->ex_flags
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, $count, $offset, flag, begin, delta)
+}
 
 /**
-probe::nfsd.commit — NFS server committing all pending writes to stable storage 
 probe::nfsd.createv3 — NFS server creating a regular file or set file attributes for client
 
 probe::nfsd.proc.commit — NFS server performing a commit operation for client
