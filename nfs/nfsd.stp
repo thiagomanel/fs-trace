@@ -121,6 +121,31 @@ probe nfsd.read.return {
 	   delta)
 }
 
+probe nfsd.proc4.read {
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.proc4.read.return {
+    #http://lxr.free-electrons.com/source/fs/nfsd/nfs4proc.c?v=2.6.34#L637
+    fh = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    dfh =  @cast(fh, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    count = $read->rd_length
+    offset = $read->rd_offset
+    vec = $rqstp->rq_vec
+    vlen = $read->rd_vlen
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, count, offset, vec, vlen, begin, delta)
+}
+
 probe nfsd.close {
     elapsed[tid(), probefunc()] = now()
 }
@@ -271,8 +296,50 @@ probe nfsd.commit.return {
            proc(), probefunc(), dfhfull, $count, $offset, flag, begin, delta)
 }
 
-/**
-probe::nfsd.createv3 — NFS server creating a regular file or set file attributes for client
+probe nfsd.proc4.commit {
+    #NFS server performing a commit operation for client
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.proc4.commit.return {
+    #http://lxr.free-electrons.com/ident?v=2.6.34;i=nfsd4_commit
+    fh = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    count = $commit->co_count
+    offset = $commit->co_offset
 
-probe::nfsd.proc.commit — NFS server performing a commit operation for client
-probe::nfsd.proc.read — NFS server reading file for client
+    dfh =  @cast($fh, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, $count, $offset, begin, delta)
+}
+
+probe nfsd.createv3 {
+    #NFS server creating a regular file or set file attributes for client
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.createv3.return {
+    dfh =  @cast($fhp, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    filename = kernel_string_n($fname, $flen)
+    iap_valid = $iap->ia_valid
+    iap_mode = $iap->ia_mode
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, filename, iap_valid, iap_mode, $truncp,
+	   $verifier, $createmode, begin, delta)
+}
