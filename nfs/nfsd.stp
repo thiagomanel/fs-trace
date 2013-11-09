@@ -164,20 +164,24 @@ probe nfsd.rename {
 }
 probe nfsd.rename.return {
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L1769
-    dfh =  @cast($ffhp, "svc_fh")->fh_dentry
-    dtfh =  @cast($tfhp, "svc_fh")->fh_dentry
-
+    dfh = @cast($ffhp, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
         dfhfull = __complete_path(dfh)
+    }
+
+    dtfh = @cast($tfhp, "svc_fh")->fh_dentry
+    dtfhfull = "null"
+    if (dtfh) {
+        dtfhfull = __complete_path(dtfh)
     }
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
     delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, begin, delta)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, dtfhfull, begin, delta)
 }
 
 probe nfsd.unlink {
@@ -191,7 +195,6 @@ probe nfsd.unlink.return {
         dfhfull = __complete_path(dfh)
     }
 
-    filelen = $flen
     filename = kernel_string_n($fname, $flen)
     type = $type
 
@@ -216,7 +219,6 @@ probe nfsd.proc4.remove.return {
         dfhfull = __complete_path(dfh)
     }
 
-    filelen = $remove->rm_namelen
     filename  = kernel_string_n($remove->rm_name, $remove->rm_namelen)
 
     begin = elapsed[tid(), probefunc()]
@@ -302,11 +304,11 @@ probe nfsd.proc4.commit {
 }
 probe nfsd.proc4.commit.return {
     #http://lxr.free-electrons.com/ident?v=2.6.34;i=nfsd4_commit
-    fh = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
     count = $commit->co_count
     offset = $commit->co_offset
 
-    dfh =  @cast($fh, "svc_fh")->fh_dentry
+    fh = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    dfh =  @cast(fh, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
         dfhfull = __complete_path(dfh)
@@ -316,8 +318,8 @@ probe nfsd.proc4.commit.return {
     delete elapsed[tid(), probefunc()]
     delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, $count, $offset, begin, delta)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, count, offset, begin, delta)
 }
 
 probe nfsd.createv3 {
