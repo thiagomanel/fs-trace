@@ -28,6 +28,10 @@
 /** elapsed time map */
 global elapsed
 
+#FIXME this is for testing purposes, will be removed soon
+global elapsed_proc
+global elapsed_daemon
+
 probe begin {
     printf("system start %d\n", gettimeofday_us());
 }
@@ -42,6 +46,26 @@ function proc:string() {
 
 function now() {
     return gettimeofday_us();
+}
+
+probe nfsd.proc.entries {
+    elapsed_proc[tid(), probefunc()] = now()
+}
+probe nfsd.proc.return {
+    begin = elapsed_proc[tid(), probefunc()]
+    delete elapsed_proc[tid(), probefunc()]
+    delta = now() - begin
+    printf("debug proc <%s> <%s> <%d> <%d>\n",  proc(), probefunc(), begin, delta)
+}
+
+probe probe nfsd.entries {
+    elapsed_daemon[tid(), probefunc()] = now()
+}
+probe nfsd.return {
+    begin = elapsed_daemon[tid(), probefunc()]
+    delete elapsed_daemon[tid(), probefunc()]
+    delta = now() - begin
+    printf("debug daemon <%s> <%s> <%d> <%d>\n",  proc(), probefunc(), begin, delta)
 }
 
 probe nfsd.proc4.lookup {
