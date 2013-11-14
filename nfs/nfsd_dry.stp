@@ -1,0 +1,50 @@
+/**
+ * Systemtap probes for the nfs (server side) file systems. Code here is
+ * borrowed from systemtap tapset. For a reason I dont understand why, my scripts
+ * cannot see the most of nfsd tapset variables, so I need my own version.
+ * I advice one to try tapset nfsd.stp before.
+ *
+ * Copyright (C) 2013 Thiago Emmanuel Pereira - thiagoepdc@lsd.ufcg.edu.br
+ * Copyright (C) 2013 Universidade Federal de Campina Grande
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ */
+global elapsed_daemon
+
+probe begin {
+    printf("system start %d\n", gettimeofday_us());
+}
+
+probe end {
+    printf("system finish %d\n", gettimeofday_us());
+}
+
+function proc:string() {
+    return sprintf("%d %d %d (%s)", uid(), pid(), tid(), execname())
+}
+
+function now() {
+    return gettimeofday_us();
+}
+
+probe nfsd.entries {
+    elapsed_daemon[tid(), probefunc()] = now()
+}
+probe nfsd.return {
+    end = now()
+    begin = elapsed_daemon[tid(), probefunc()]
+    delete elapsed_daemon[tid(), probefunc()]
+    printf("debug daemon <%s> <%s> <%d> <%d> <%d>\n",  proc(), probefunc(), begin, end, end - begin)
+}
