@@ -29,29 +29,8 @@
 global elapsed
 
 #FIXME this is for testing purposes, will be removed soon
+global elapsed_proc
 global elapsed_daemon
-
-function ftype:string(type:long) %{ /* pure */
-    int type = (int)(long)THIS->type;
-
-    if (S_ISLNK(type)) {
-        snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (ISLNK)", type);
-    } else if (S_ISREG(type)) {
-        snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (ISREG)", type);
-    } else if (S_ISDIR(type)) {
-        snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (ISDIR)", type);
-    } else if (S_ISCHR(type)) {
-	snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (ISCHR)", type);
-    } else if (S_ISBLK(type)) {
-        snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (ISBLK)", type);
-    } else if (S_ISFIFO(type)) {
-        snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (ISFIFO)", type);
-    } else if (S_ISSOCK(type)) {
-        snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (ISSOCK)", type);
-    } else {
-        snprintf(THIS->__retvalue, MAXSTRINGLEN, "0%o (Unknown)", type);
-    }
-%}
 
 probe begin {
     printf("system start %d\n", gettimeofday_us());
@@ -78,37 +57,37 @@ probe nfsd.proc.return {
     delete elapsed_proc[tid(), probefunc()]
     delta = now() - begin
     printf("debug proc <%s> <%s> <%d> <%d>\n",  proc(), probefunc(), begin, delta)
-}*/
+}
 
 probe nfsd.entries {
     elapsed_daemon[tid(), probefunc()] = now()
 }
 probe nfsd.return {
-    end = now()
     begin = elapsed_daemon[tid(), probefunc()]
     delete elapsed_daemon[tid(), probefunc()]
-    printf("debug daemon <%s> <%s> <%d> <%d> <%d>\n",  proc(), probefunc(), begin, end, end - begin)
-}
+    delta = now() - begin
+    printf("debug daemon <%s> <%s> <%d> <%d>\n",  proc(), probefunc(), begin, delta)
+}*/
 
-probe nfsd.lookup {
+probe nfsd.proc4.lookup {
     elapsed[tid(), probefunc()] = now()
 }
-probe nfsd.lookup.return {
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=2.6.34#L250
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=2.6.32#L240
-    end = now()
-    dfh =  @cast($fhp, "svc_fh")->fh_dentry
+probe nfsd.proc4.lookup.return {
+    #http://lxr.free-electrons.com/source/fs/nfsd/nfs4proc.c#L750
+    h = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    d =  @cast(h, "svc_fh")->fh_dentry
 
-    dfhfull = "null"
-    if (dfh) {
-        dfhfull = __complete_path(dfh)
+    dfull = "null"
+    if (d) {
+        dfull = __complete_path(d)
     }
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%d> <%d>\n",
+	   proc(), probefunc(), dfull, begin, delta)
 }
 
 function __complete_path:string(dentry:long) {
@@ -116,26 +95,29 @@ function __complete_path:string(dentry:long) {
     return sprintf("%s/%s", reverse_path_walk(parent), d_name(dentry));
 }
 
-probe nfsd.write {
+probe nfsd.proc4.write {
     elapsed[tid(), probefunc()] = now()
 }
-probe nfsd.write.return {
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=2.6.34#L1119
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=2.6.32#L1123
-    end = now()
-    dfh =  @cast($fhp, "svc_fh")->fh_dentry
+probe nfsd.proc4.write.return {
+    #http://lxr.free-electrons.com/source/fs/nfsd/nfs4proc.c#L987
+    h = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    d =  @cast(h, "svc_fh")->fh_dentry
 
-    dfhfull = "null"
-    if (dfh) {
-        dfhfull = __complete_path(dfh)
+    dfull = "null"
+    if (d) {
+        dfull = __complete_path(d)
     }
+
+    count = $write->wr_buflen
+    offset = $write->wr_offset
+    stable = $write->wr_stable_how
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, kernel_int($cnt), $offset,
-	   kernel_int($stablep), begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfull, count, offset, stable, begin, delta)
 }
 
 #FIXME: i did not see any call to nfsd.read
@@ -144,7 +126,6 @@ probe nfsd.read {
 }
 probe nfsd.read.return {
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=2.6.34#L1090
-    end = now()
     dfh =  @cast($fhp, "svc_fh")->fh_dentry
 
     dfhfull = "null"
@@ -152,12 +133,42 @@ probe nfsd.read.return {
         dfhfull = __complete_path(dfh)
     }
 
+    //count = $
+    //offset = $write->wr_offset
+    //stable = $write->wr_stable_how
+
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, kernel_int($count), $offset,
-	   kernel_int($vec), $vlen, begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, $count, $offset, $vec, $vlen, begin,
+	   delta)
+}
+
+probe nfsd.proc4.read {
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.proc4.read.return {
+    #http://lxr.free-electrons.com/source/fs/nfsd/nfs4proc.c?v=2.6.34#L637
+    fh = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    dfh =  @cast(fh, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    count = $read->rd_length
+    offset = $read->rd_offset
+    vec = $rqstp->rq_vec
+    vlen = $read->rd_vlen
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, count, offset, vec, vlen, begin, delta)
 }
 
 probe nfsd.close {
@@ -165,12 +176,12 @@ probe nfsd.close {
 }
 probe nfsd.close.return {
     //FIXME did not receive a close, we miss a test to this probe
-    end = now()
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
-           proc(), probefunc(), __file_filename($filp), begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%d> <%d>\n",
+           proc(), probefunc(), __file_filename($filp), begin, delta)
 }
 
 probe nfsd.rename {
@@ -178,7 +189,6 @@ probe nfsd.rename {
 }
 probe nfsd.rename.return {
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L1769
-    end = now()
     dfh = @cast($ffhp, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
@@ -193,9 +203,10 @@ probe nfsd.rename.return {
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, dtfhfull, begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, dtfhfull, begin, delta)
 }
 
 probe nfsd.unlink {
@@ -203,7 +214,6 @@ probe nfsd.unlink {
     elapsed[tid(), probefunc()] = now()
 }
 probe nfsd.unlink.return {
-    end = now()
     dfh =  @cast($fhp, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
@@ -211,13 +221,37 @@ probe nfsd.unlink.return {
     }
 
     filename = kernel_string_n($fname, $flen)
+    type = $type
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, filename, ftype($type),
-	   begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, filename, type, begin, delta)
+}
+
+probe nfsd.proc4.remove {
+    #NFS server removing a file for client
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.proc4.remove.return {
+    #http://lxr.free-electrons.com/source/fs/nfsd/nfs4proc.c?v=2.6.34#L700
+    fh = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    dfh =  @cast(fh, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    filename  = kernel_string_n($remove->rm_name, $remove->rm_namelen)
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%s> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, filename, begin, delta)
 }
 
 probe nfsd.open {
@@ -226,7 +260,7 @@ probe nfsd.open {
 }
 probe nfsd.open.return {
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L773
-    end = now()
+
     fhp =  @cast($fhp, "svc_fh")->fh_dentry
     fhpfull = "null"
     if (fhp) {
@@ -235,9 +269,10 @@ probe nfsd.open.return {
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), fhpfull, $access, begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
+           proc(), probefunc(), fhpfull, $may_flags, begin, delta)
 }
 
 probe nfsd.create {
@@ -246,7 +281,6 @@ probe nfsd.create {
     elapsed[tid(), probefunc()] = now()
 }
 probe nfsd.create.return {
-    end = now()
     fhp =  @cast($fhp, "svc_fh")->fh_dentry
     fhpfull = "null"
     if (fhp) {
@@ -259,37 +293,58 @@ probe nfsd.create.return {
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
            proc(), probefunc(), fhpfull, filename, ftype($type), iap_valid,
-	   iap_mode, begin, end, end - begin)
+	   iap_mode, begin, delta)
 }
 
+#FIXME: did not seem any log comming from this probe
 probe nfsd.commit {
     #NFS server committing all pending writes to stable storage
     elapsed[tid(), probefunc()] = now()
 }
 probe nfsd.commit.return {
     #http://lxr.free-electrons.com/ident?v=2.6.34;i=nfsd_commit
-    end = now()
     dfh =  @cast($fhp, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
         dfhfull = __complete_path(dfh)
     }
 
-    #FIXME: we got some kernel faults wheen reading this, so I will skip
-    #this by now
-    #flag = $fhp->fh_export->ex_flags
+    flag = $fhp->fh_export->ex_flags
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
-
-    #FIXME: kernel_int() for count and offset ? we have 0 and 0
+    delta = now() - begin
 
     printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, $count, $offset,
-	   begin, end, end - begin)
+           proc(), probefunc(), dfhfull, $count, $offset, flag, begin, delta)
+}
+
+probe nfsd.proc4.commit {
+    #NFS server performing a commit operation for client
+    elapsed[tid(), probefunc()] = now()
+}
+probe nfsd.proc4.commit.return {
+    #http://lxr.free-electrons.com/ident?v=2.6.34;i=nfsd4_commit
+    count = $commit->co_count
+    offset = $commit->co_offset
+
+    fh = & @cast($cstate, "nfsd4_compound_state", "kernel:nfsd")->current_fh
+    dfh =  @cast(fh, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    delta = now() - begin
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, count, offset, begin, delta)
 }
 
 probe nfsd.createv3 {
@@ -297,7 +352,6 @@ probe nfsd.createv3 {
     elapsed[tid(), probefunc()] = now()
 }
 probe nfsd.createv3.return {
-    end = now()
     dfh =  @cast($fhp, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
@@ -310,10 +364,9 @@ probe nfsd.createv3.return {
 
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
+    delta = now() - begin
 
-    #FIXME: should we use kernel_int ?
-
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, filename, iap_valid, iap_mode, $truncp,
-	   $verifier, $createmode, begin, end, end - begin)
+	   $verifier, $createmode, begin, delta)
 }
