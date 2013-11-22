@@ -21,7 +21,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-global elapsed_daemon
+
+global elapsed
 
 probe begin {
     printf("system start %d\n", gettimeofday_us());
@@ -39,12 +40,32 @@ function now() {
     return gettimeofday_us();
 }
 
-probe nfsd.entries {
-    elapsed_daemon[tid(), probefunc()] = now()
+probe nfsd.lookup,
+      nfsd.write,
+      nfsd.read,
+      nfsd.close,
+      nfsd.rename,
+      nfsd.unlink,
+      nfsd.open,
+      nfsd.create, 
+      nfsd.commit
+{
+    elapsed[tid(), probefunc()] = now()
 }
-probe nfsd.return {
+
+probe nfsd.lookup.return,
+      nfsd.write.return,
+      nfsd.read.return,
+      nfsd.close.return,
+      nfsd.rename.return,
+      nfsd.unlink.return,
+      nfsd.open.return,
+      nfsd.create.return, 
+      nfsd.commit.return
+{
     end = now()
-    begin = elapsed_daemon[tid(), probefunc()]
-    delete elapsed_daemon[tid(), probefunc()]
-    printf("debug daemon <%s> <%s> <%d> <%d> <%d>\n",  proc(), probefunc(), begin, end, end - begin)
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    printf("<%s> <%s>  <%d> <%d> <%d>\n",
+	   proc(), probefunc(), begin, end, end - begin)
 }
