@@ -23,7 +23,7 @@
  */
 
 #FIXME: return values ?
-global elapsed
+global elapsed, proc_elapsed
 
 probe begin {
     printf("system start %d\n", gettimeofday_us());
@@ -41,6 +41,145 @@ function now() {
     return gettimeofday_us();
 }
 
+/** FSSTAT */
+//FIXME: test args
+probe kernel.function("nfsd3_proc_fsstat")!,
+      module("nfsd").function("nfsd3_proc_fsstat")? {
+
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_fsstat").return!,
+      module("nfsd").function("nfsd3_proc_fsstat").return? {
+
+    //http://lxr.free-electrons.com/source/fs/nfsd/nfs3proc.c?v=3.2#L516
+    end = now()
+
+    fh = & @cast($argp, "nfsd_diropargs", "kernel:nfsd")->fh
+    dfh = @cast(fh, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd_statfs")!,
+      module("nfsd").function("nfsd_statfs")? {
+
+    elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd_statfs").return!,
+      module("nfsd").function("nfsd_statfs").return? {
+
+    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=3.2#L2038
+    end = now()
+    dfh = @cast($fhp, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    _access = -1
+    if (@defined($access)) {
+        _access = kernel_int($access)
+    }
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, _access, begin, end, end - begin,
+	   $return)
+}
+
+/** SETATTR */
+//FIXME: proc args
+//FIXME  nfsd args
+probe kernel.function("nfsd3_proc_setattr")!,
+      module("nfsd").function("nfsd3_proc_setattr")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_setattr").return!,
+      module("nfsd").function("nfsd3_proc_setattr").return? {
+
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+    printf("<%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), begin, end, end - begin)
+}
+probe kernel.function("nfsd_setattr")!,
+      module("nfsd").function("nfsd_setattr")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd_setattr").return!,
+      module("nfsd").function("nfsd_setattr").return? {
+
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+    printf("<%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), begin, end, end - begin)
+}
+
+/**
+ * GETATTR
+ * */
+probe kernel.function("nfsd3_proc_getattr")!,
+      module("nfsd").function("nfsd3_proc_getattr")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_getattr").return!,
+      module("nfsd").function("nfsd3_proc_getattr").return? {
+
+    //http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_getattr
+    //there is no nfsd func to it. vfs is called instead. no nfsd probe then.
+    fh = & @cast($resp, "nfsd3_attrstat", "kernel:nfsd")->fh
+    dfh = @cast(fh, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, begin, end, end - begin, $return)
+}
+
+/**
+ * LOOKUP
+ * */
+probe kernel.function("nfsd3_proc_lookup")!,
+      module("nfsd").function("nfsd3_proc_lookup")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_lookup").return!,
+      module("nfsd").function("nfsd3_proc_lookup").return? {
+    #http://lxr.free-electrons.com/source/fs/nfsd/nfs3proc.c?v=3.2#L87
+    end = now()
+
+    _name = kernel_string_n($argp->name, $argp->len)
+
+    fh = & @cast($resp, "nfsd3_diropres", "kernel:nfsd")->dirfh
+    dfh = @cast(fh, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, _name, begin, end, end - begin,
+	   $return)
+}
 probe nfsd.lookup {
     elapsed[tid(), probefunc()] = now()
 }
@@ -59,13 +198,46 @@ probe nfsd.lookup.return {
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, kernel_string_n($name, $len),
+	   begin, end, end - begin, $return)
 }
 
 function __complete_path:string(dentry:long) {
     parent = @cast(dentry, "dentry")->d_parent;
     return sprintf("%s/%s", reverse_path_walk(parent), d_name(dentry));
+}
+
+/**
+ * WRITE
+ * */
+probe kernel.function("nfsd3_proc_write")!,
+      module("nfsd").function("nfsd3_proc_write")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_write").return!,
+      module("nfsd").function("nfsd3_proc_write").return? {
+
+    //http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_write
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_writeres", "kernel:nfsd")->fh
+    dfh = @cast(fhp, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    count = $argp->count
+    offset = $argp->offset
+    stable = $argp->stable
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, count, offset, stable,
+	   begin, end, end - begin, $return)
 }
 
 probe nfsd.write {
@@ -86,9 +258,41 @@ probe nfsd.write.return {
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, kernel_int($cnt), $offset,
-	   kernel_int($stablep), begin, end, end - begin)
+	   kernel_int($stablep), begin, end, end - begin, $return)
+}
+
+/**
+ * READ
+ * */
+probe kernel.function("nfsd3_proc_read")!,
+      module("nfsd").function("nfsd3_proc_read")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_read").return!,
+      module("nfsd").function("nfsd3_proc_read").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_read
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_readres", "kernel:nfsd")->fh
+    dfh = @cast(fhp, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    count = $argp->count
+    offset = $argp->offset
+    vlen = $argp->vlen
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, count, offset, vlen,
+	   begin, end, end - begin, $return)
 }
 
 probe nfsd.read {
@@ -108,9 +312,9 @@ probe nfsd.read.return {
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, kernel_int($count), $offset,
-	   $vlen, begin, end, end - begin)
+	   $vlen, begin, end, end - begin, $return)
 }
 
 probe nfsd.close {
@@ -127,6 +331,41 @@ probe nfsd.close.return {
            proc(), probefunc(), __file_filename($filp), begin, end, end - begin)
 }
 
+/**
+ * RENAME
+ * */
+probe kernel.function("nfsd3_proc_rename")!,
+      module("nfsd").function("nfsd3_proc_rename")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_renane").return!,
+      module("nfsd").function("nfsd3_proc_rename").return? {
+
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    ffhp = & @cast($resp, "nfsd3_renameres", "kernel:nfsd")->ffh
+    dffh = @cast(ffhp, "svc_fh")->fh_dentry
+    dffhfull = "null"
+    if (dffh) {
+        dffhfull = __complete_path(dffh)
+    }
+
+    tfhp = & @cast($resp, "nfsd3_renameres", "kernel:nfsd")->tfh
+    dtfh = @cast(tfhp, "svc_fh")->fh_dentry
+    dtfhfull = "null"
+    if (dtfh) {
+        dtfhfull = __complete_path(dtfh)
+    }
+
+    _fname = kernel_string_n($argp->fname, $argp->flen)
+    _tname = kernel_string_n($argp->tname, $argp->tlen)
+
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dffhfull, dtfhfull, _fname, _tname,
+	   begin, end, end - begin, $return)
+}
 probe nfsd.rename {
     elapsed[tid(), probefunc()] = now()
 }
@@ -134,6 +373,9 @@ probe nfsd.rename.return {
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L1769
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=3.2#L1720
     end = now()
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+
     dfh = @cast($ffhp, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
@@ -146,11 +388,66 @@ probe nfsd.rename.return {
         dtfhfull = __complete_path(dtfh)
     }
 
-    begin = elapsed[tid(), probefunc()]
-    delete elapsed[tid(), probefunc()]
+    _fname = kernel_string_n($fname, $flen)
+    _tname = kernel_string_n($tname, $tlen)
 
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, dtfhfull, begin, end, end - begin)
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, dtfhfull, _fname, _tname,
+	   begin, end, end - begin, $return)
+}
+
+/**
+ * REMOVE, RMDIR, UNLINK
+ * */
+probe kernel.function("nfsd3_proc_remove")!,
+      module("nfsd").function("nfsd3_proc_remove")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_remove").return!,
+      module("nfsd").function("nfsd3_proc_remove").return? {
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_remove
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    //nfsd3_attrstat
+    fhp = & @cast($resp, "nfsd3_attrstat", "kernel:nfsd")->fh
+    dfh = @cast(fhp, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    _name = kernel_string_n($argp->name, $argp->len)
+
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, _name, begin, end, end - begin,
+	   $return)
+}
+
+probe kernel.function("nfsd3_proc_rmdir")!,
+      module("nfsd").function("nfsd3_proc_rmdir")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_rmdir").return!,
+      module("nfsd").function("nfsd3_proc_rmdir").return? {
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_rmdir
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_attrstat", "kernel:nfsd")->fh
+    dfh = @cast(fhp, "svc_fh")->fh_dentry
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    _name = kernel_string_n($argp->name, $argp->len)
+
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, _name, begin, end, end - begin,
+	   $return)
 }
 
 probe nfsd.unlink {
@@ -160,6 +457,9 @@ probe nfsd.unlink {
 probe nfsd.unlink.return {
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=3.2#L1824
     end = now()
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+
     dfh =  @cast($fhp, "svc_fh")->fh_dentry
     dfhfull = "null"
     if (dfh) {
@@ -168,14 +468,273 @@ probe nfsd.unlink.return {
 
     filename = kernel_string_n($fname, $flen)
 
+    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), dfhfull, filename, ftype($type),
+	   begin, end, end - begin, $return)
+}
+
+/**
+ * LINK
+ * */
+probe kernel.function("nfsd3_proc_link")!,
+      module("nfsd").function("nfsd3_proc_link")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_link").return!,
+      module("nfsd").function("nfsd3_proc_link").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_link
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    ffhp = & @cast($resp, "nfsd3_linkres", "kernel:nfsd")->fh
+    dffh = @cast(ffhp, "svc_fh")->fh_dentry
+    old_name = "null"
+    if (dffh) {
+        old_name = __complete_path(dffh)
+    }
+
+    tfhp = & @cast($resp, "nfsd3_linkres", "kernel:nfsd")->tfh
+    dtfh = @cast(tfhp, "svc_fh")->fh_dentry
+    target_dir = "null"
+    if (dtfh) {
+        target_dir = __complete_path(dtfh)
+    }
+
+    new_name = kernel_string_n($argp->tname, $argp->tlen)
+    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), old_name, target_dir, new_name,
+	   begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd_link")!,
+      module("nfsd").function("nfsd_link")? {
+   elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd_link").return!,
+      module("nfsd").function("nfsd_link").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;i=nfsd_link
+    end = now()
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, filename, ftype($type),
-	   begin, end, end - begin)
+    dffh =  @cast($ffhp, "svc_fh")->fh_dentry
+    target_dir = "null"
+    if (dffh) {
+        target_dir = __complete_path(dffh)
+    }
+
+    tffh =  @cast($tfhp, "svc_fh")->fh_dentry
+    old_name = "null"
+    if (tffh) {
+        old_name = __complete_path(tffh)
+    }
+
+    new_name = kernel_string_n($name, $len)
+
+    printf("<%s> <%s> <%s> <%s> <%s ><%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), old_name, target_dir, new_name,
+	   begin, end, end - begin, $return)
 }
 
+/**
+ * SYMLINK
+ * */
+probe kernel.function("nfsd3_proc_symlink")!,
+      module("nfsd").function("nfsd3_proc_symlink")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_symlink").return!,
+      module("nfsd").function("nfsd3_proc_symlink").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_symlink
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    dirfhp = & @cast($resp, "nfsd3_diropres", "kernel:nfsd")->dirfh
+    ddirfhp = @cast(dirfhp, "svc_fh")->fh_dentry
+
+    dirfh_name = "null"
+    if (ddirfhp) {
+        dirfh_name = __complete_path(ddirfhp)
+    }
+
+    _fname = kernel_string_n($argp->fname, $argp->flen)
+    _tname = kernel_string_n($argp->tname, $argp->tlen)
+
+    fhp = & @cast($resp, "nfsd3_diropres", "kernel:nfsd")->fh
+    dfhp = @cast(fhp, "svc_fh")->fh_dentry
+
+    fh_name = "null"
+    if (dfhp) {
+        fh_name = __complete_path(dfhp)
+    }
+
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dirfh_name, _fname, _tname, fh_name,
+	   begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd_symlink")!,
+      module("nfsd").function("nfsd_symlink")? {
+   elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd_symlink").return!,
+      module("nfsd").function("nfsd_symlink").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;i=nfsd_symlink
+    end = now()
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+
+    dfhp = @cast($fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+
+    dresfhp = @cast($resfhp, "svc_fh")->fh_dentry
+    dresfhp_name = "null"
+    if (dresfhp) {
+        dresfhp_name = __complete_path(dresfhp)
+    }
+
+    _fname = kernel_string_n($fname, $flen)
+    _path = kernel_string_n($path, $plen)
+
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, dresfhp_name, _fname, _path,
+	   begin, end, end - begin, $return)
+}
+
+/**
+ * READLINK
+ * */
+probe kernel.function("nfsd3_proc_readlink")!,
+      module("nfsd").function("nfsd3_proc_readlink")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_readlink").return!,
+      module("nfsd").function("nfsd3_proc_readlink").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_readlink
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_readlinkres", "kernel:nfsd")->fh
+    dfhp = @cast(fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, $resp->len,
+	   begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd_readlink")!,
+      module("nfsd").function("nfsd_readlink")? {
+   elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd_readlink").return!,
+      module("nfsd").function("nfsd_readlink").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.5;i=nfsd_readlink
+    end = now()
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+
+    dfhp = @cast($fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, kernel_int($lenp),
+	   begin, end, end - begin, $return)
+}
+
+/**
+ * READDIR
+ * */
+probe kernel.function("nfsd3_proc_readdir")!,
+      module("nfsd").function("nfsd3_proc_readdir")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_readdir").return!,
+      module("nfsd").function("nfsd3_proc_readdir").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_readdir
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_readlinkres", "kernel:nfsd")->fh
+    dfhp = @cast(fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name,
+	   begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd_readdir")!,
+      module("nfsd").function("nfsd_readdir")? {
+   elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd_readdir").return!,
+      module("nfsd").function("nfsd_readdir").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.5;i=nfsd_readdir
+    end = now()
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+
+    dfhp = @cast($fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, begin, end, end - begin, $return)
+}
+
+/**
+ * READDIRPLUS
+ * */
+probe kernel.function("nfsd3_proc_readdirplus")!,
+      module("nfsd").function("nfsd3_proc_readdirplus")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_readdirplus").return!,
+      module("nfsd").function("nfsd3_proc_readdirplus").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_readdirplus
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_readdirres", "kernel:nfsd")->fh
+    dfhp = @cast(fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, begin, end, end - begin, $return)
+}
+
+/** OPEN */
 #FIXME: we are missing $type in open calls
 probe nfsd.open {
     #NFS server opening a file for client
@@ -185,17 +744,167 @@ probe nfsd.open.return {
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L773
     #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=3.2#L733
     end = now()
+    begin = elapsed[tid(), probefunc()]
+    delete elapsed[tid(), probefunc()]
+
     fhp =  @cast($fhp, "svc_fh")->fh_dentry
     fhpfull = "null"
     if (fhp) {
         fhpfull = __complete_path(fhp)
     }
 
+    _access = -1
+    if (@defined($access)) {
+       //FIXME kernel_int ?
+        _access = $access
+    }
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+           proc(), probefunc(), fhpfull, _access,
+	   begin, end, end - begin, $return)
+}
+
+/**
+ * ACCESS
+ * */
+probe kernel.function("nfsd3_proc_access")!,
+      module("nfsd").function("nfsd3_proc_access")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_access").return!,
+      module("nfsd").function("nfsd3_proc_access").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_access
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_accessres", "kernel:nfsd")->fh
+    dfhp = @cast(fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, $resp->access,
+	   begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd_access")!,
+      module("nfsd").function("nfsd_access")? {
+   elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd_access").return!,
+      module("nfsd").function("nfsd_access").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;i=nfsd_access
+    end = now()
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
-    
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), fhpfull, $access, begin, end, end - begin)
+
+    fhp =  @cast($fhp, "svc_fh")->fh_dentry
+    fhpfull = "null"
+    if (fhp) {
+        fhpfull = __complete_path(fhp)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), fhpfull, kernel_int($access),
+	   begin, end, end - begin, $return)
+}
+
+/**
+ * MKDIR
+ * MKNOD
+ * CREATE
+ * */
+probe kernel.function("nfsd3_proc_mknod")!,
+      module("nfsd").function("nfsd3_proc_mknod")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_mknod").return!,
+      module("nfsd").function("nfsd3_proc_mknod").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_mknod
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    dirfhp = & @cast($resp, "nfsd3_diropres", "kernel:nfsd")->dirfh
+    ddirfhp = @cast(dirfhp, "svc_fh")->fh_dentry
+    dirfh_name = "null"
+    if (ddirfhp) {
+        dirfh_name = __complete_path(ddirfhp)
+    }
+
+    _name = kernel_string_n($argp->name, $argp->len)
+    _type = ftype($argp->ftype)
+    _major = $argp->major
+    _minor = $argp->minor
+
+    fhp = & @cast($resp, "nfsd3_diropres", "kernel:nfsd")->fh
+    dfhp = @cast(fhp, "svc_fh")->fh_dentry
+    fh_name = "null"
+    if (dfhp) {
+        fh_name = __complete_path(dfhp)
+    }
+
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> \n",
+	   proc(), probefunc(), dirfh_name, fh_name, _name, _type, _major,
+	   _minor, begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd3_proc_mkdir")!,
+      module("nfsd").function("nfsd3_proc_mkdir")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_mkdir").return!,
+      module("nfsd").function("nfsd3_proc_mkdir").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_mkdir
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    dirfhp = & @cast($resp, "nfsd3_diropres", "kernel:nfsd")->dirfh
+    ddirfhp = @cast(dirfhp, "svc_fh")->fh_dentry
+    dirfh_name = "null"
+    if (ddirfhp) {
+        dirfh_name = __complete_path(ddirfhp)
+    }
+
+    _name = kernel_string_n($argp->name, $argp->len)
+
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dirfh_name, _name,
+	   begin, end, end - begin, $return)
+}
+
+probe kernel.function("nfsd3_proc_create")!,
+      module("nfsd").function("nfsd3_proc_create")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_create").return!,
+      module("nfsd").function("nfsd3_proc_create").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_create
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    dirfhp = & @cast($resp, "nfsd3_diropres", "kernel:nfsd")->dirfh
+    ddirfhp = @cast(dirfhp, "svc_fh")->fh_dentry
+    dirfh_name = "null"
+    if (ddirfhp) {
+        dirfh_name = __complete_path(ddirfhp)
+    }
+
+    _name = kernel_string_n($argp->name, $argp->len)
+    cmode = $argp->createmode
+
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dirfh_name, _name, cmode,
+	   begin, end, end - begin, $return)
 }
 
 #FIXME: iap has another field. include them?
@@ -226,6 +935,35 @@ probe nfsd.create.return {
 	   iap_mode, begin, end, end - begin)
 }
 
+/**
+ * COMMIT
+ * */
+probe kernel.function("nfsd3_proc_commit")!,
+      module("nfsd").function("nfsd3_proc_commit")? {
+    proc_elapsed[tid(), probefunc()] = now()
+}
+probe kernel.function("nfsd3_proc_commit").return!,
+      module("nfsd").function("nfsd3_proc_commit").return? {
+
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_commit
+    end = now()
+    begin = proc_elapsed[tid(), probefunc()]
+    delete proc_elapsed[tid(), probefunc()]
+
+    fhp = & @cast($resp, "nfsd3_commitres", "kernel:nfsd")->fh
+    dfhp = @cast(fhp, "svc_fh")->fh_dentry
+    dfhp_name = "null"
+    if (dfhp) {
+        dfhp_name = __complete_path(dfhp)
+    }
+
+    _count = $argp->count
+    _offset = $argp->offset
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, _count, _offset,
+	   begin, end, end - begin, $return)
+}
 probe nfsd.commit {
     #NFS server committing all pending writes to stable storage
     elapsed[tid(), probefunc()] = now()
@@ -253,30 +991,3 @@ probe nfsd.commit.return {
            proc(), probefunc(), dfhfull, $count, $offset,
 	   begin, end, end - begin)
 }
-
-/*
-probe nfsd.createv3 {
-    #NFS server creating a regular file or set file attributes for client
-    elapsed[tid(), probefunc()] = now()
-}
-probe nfsd.createv3.return {
-    end = now()
-    dfh =  @cast($fhp, "svc_fh")->fh_dentry
-    dfhfull = "null"
-    if (dfh) {
-        dfhfull = __complete_path(dfh)
-    }
-
-    filename = kernel_string_n($fname, $flen)
-    iap_valid = $iap->ia_valid
-    iap_mode = $iap->ia_mode
-
-    begin = elapsed[tid(), probefunc()]
-    delete elapsed[tid(), probefunc()]
-
-    #FIXME: should we use kernel_int ?
-
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), dfhfull, filename, iap_valid, iap_mode, $truncp,
-	   $verifier, $createmode, begin, end, end - begin)
-}*/
