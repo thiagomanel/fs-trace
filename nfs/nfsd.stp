@@ -25,6 +25,32 @@
 #FIXME: return values ?
 global elapsed, proc_elapsed
 
+#FIXME check coverage; are we missing any call ?
+#http://www.ietf.org/rfc/rfc1813.txt
+
+#NULL
+#GETATTR
+#SETATTR
+#LOOKUP
+#ACCESS
+#READLINK
+#READ
+#WRITE
+#CREATE
+#MKDIR
+#SYMLINK
+#MKNOD
+#REMOVE
+#RMDIR
+#RENAME
+#LINK
+#READDIR
+#READDIRPLUS
+#FSSTAT - OK
+#FSINFO
+#PATHCONF
+#COMMIT
+
 probe begin {
     printf("system start %d\n", gettimeofday_us());
 }
@@ -42,7 +68,6 @@ function now() {
 }
 
 /** FSSTAT */
-//FIXME: test args
 probe kernel.function("nfsd3_proc_fsstat")!,
       module("nfsd").function("nfsd3_proc_fsstat")? {
 
@@ -53,19 +78,11 @@ probe kernel.function("nfsd3_proc_fsstat").return!,
 
     //http://lxr.free-electrons.com/source/fs/nfsd/nfs3proc.c?v=3.2#L516
     end = now()
-
-    fh = & @cast($argp, "nfsd_diropargs", "kernel:nfsd")->fh
-    dfh = @cast(fh, "svc_fh")->fh_dentry
-
-    dfhfull = "null"
-    if (dfh) {
-        dfhfull = __complete_path(dfh)
-    }
-
+    //No need to log args, it's a call to get information about the mount point
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, begin, end, end - begin, $return)
+    printf("<%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), begin, end, end - begin, $return)
 }
 
 probe kernel.function("nfsd_statfs")!,
@@ -80,12 +97,11 @@ probe kernel.function("nfsd_statfs").return!,
     end = now()
     dfh = @cast($fhp, "svc_fh")->fh_dentry
 
+    //FIXME: not sure if nfsd_statfs is called only by proc_fsstat
+    //if so, we can skip logging args because is a call to get
+    //information about the mount point
+    //FIXME: it seems there is a proc_stafs
     dfhfull = "null"
-    if (dfh) {
-        dfhfull = __complete_path(dfh)
-    }
-
-    _access = -1
     if (@defined($access)) {
         _access = kernel_int($access)
     }
@@ -96,9 +112,9 @@ probe kernel.function("nfsd_statfs").return!,
 	   $return)
 }
 
-/** SETATTR */
-//FIXME: proc args
-//FIXME  nfsd args
+/**
+ * SETATTR
+ * */
 probe kernel.function("nfsd3_proc_setattr")!,
       module("nfsd").function("nfsd3_proc_setattr")? {
     proc_elapsed[tid(), probefunc()] = now()
@@ -106,9 +122,11 @@ probe kernel.function("nfsd3_proc_setattr")!,
 probe kernel.function("nfsd3_proc_setattr").return!,
       module("nfsd").function("nfsd3_proc_setattr").return? {
 
+    #http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_setattr
     end = now()
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
+
     printf("<%s> <%s> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), begin, end, end - begin)
 }
@@ -217,6 +235,9 @@ probe kernel.function("nfsd3_proc_write")!,
 }
 probe kernel.function("nfsd3_proc_write").return!,
       module("nfsd").function("nfsd3_proc_write").return? {
+
+    //FIXME: do we need to log both argp and resp, so that we know both
+    //intended and actual counts ?
 
     //http://lxr.free-electrons.com/ident?v=3.2;a=sh;i=nfsd3_proc_write
     end = now()
