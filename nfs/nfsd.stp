@@ -81,35 +81,8 @@ probe kernel.function("nfsd3_proc_fsstat").return!,
     //No need to log args, it's a call to get information about the mount point
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
-    printf("<%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), begin, end, end - begin, $return)
-}
-
-probe kernel.function("nfsd_statfs")!,
-      module("nfsd").function("nfsd_statfs")? {
-
-    elapsed[tid(), probefunc()] = now()
-}
-probe kernel.function("nfsd_statfs").return!,
-      module("nfsd").function("nfsd_statfs").return? {
-
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=3.2#L2038
-    end = now()
-    dfh = @cast($fhp, "svc_fh")->fh_dentry
-
-    //FIXME: not sure if nfsd_statfs is called only by proc_fsstat
-    //if so, we can skip logging args because is a call to get
-    //information about the mount point
-    //FIXME: it seems there is a proc_stafs
-    dfhfull = "null"
-    if (@defined($access)) {
-        _access = kernel_int($access)
-    }
-    begin = elapsed[tid(), probefunc()]
-    delete elapsed[tid(), probefunc()]
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, _access, begin, end, end - begin,
-	   $return)
+    printf("<%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), begin, end, $return)
 }
 
 /**
@@ -117,7 +90,29 @@ probe kernel.function("nfsd_statfs").return!,
  * */
 probe kernel.function("nfsd3_proc_setattr")!,
       module("nfsd").function("nfsd3_proc_setattr")? {
-    proc_elapsed[tid(), probefunc()] = now()
+
+    _now = now()
+    proc_elapsed[tid(), probefunc()] = _now
+
+    iattr = & @cast($argp, "nfsd3_sattrargs", "kernel:nfsd")->attrs
+
+    ivalid = @cast(iattr, "iattr")->ia_valid
+    isize = @cast(iattr, "iattr")->ia_size
+    iuid = @cast(iattr, "iattr")->ia_uid
+    igid = @cast(iattr, "iattr")->ia_gid
+    imode = @cast(iattr, "iattr")->ia_mode
+
+    fh = & @cast($argp, "nfsd3_sattrargs", "kernel:nfsd")->fh
+    dfh = @cast(fh, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+	    proc(), probefunc(), dfhfull, ivalid, isize, iuid, igid, imode,
+	    _now)
 }
 probe kernel.function("nfsd3_proc_setattr").return!,
       module("nfsd").function("nfsd3_proc_setattr").return? {
@@ -127,8 +122,16 @@ probe kernel.function("nfsd3_proc_setattr").return!,
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), begin, end, end - begin)
+    fh = & @cast($argp, "nfsd3_sattrargs", "kernel:nfsd")->fh
+    dfh = @cast(fh, "svc_fh")->fh_dentry
+
+    dfhfull = "null"
+    if (dfh) {
+        dfhfull = __complete_path(dfh)
+    }
+
+    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, begin, end, $return)
 }
 probe kernel.function("nfsd_setattr")!,
       module("nfsd").function("nfsd_setattr")? {
@@ -140,8 +143,8 @@ probe kernel.function("nfsd_setattr").return!,
     end = now()
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
-    printf("<%s> <%s> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), begin, end, end - begin)
+    printf("<%s> <%s> <%d> <%d>\n",
+	   proc(), probefunc(), begin, end)
 }
 
 /**
@@ -167,8 +170,8 @@ probe kernel.function("nfsd3_proc_getattr").return!,
     end = now()
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, begin, end, $return)
 }
 
 /**
@@ -194,9 +197,8 @@ probe kernel.function("nfsd3_proc_lookup").return!,
     }
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, _name, begin, end, end - begin,
-	   $return)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, _name, begin, end, $return)
 }
 probe nfsd.lookup {
     elapsed[tid(), probefunc()] = now()
@@ -216,9 +218,9 @@ probe nfsd.lookup.return {
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dfhfull, kernel_string_n($name, $len),
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 function __complete_path:string(dentry:long) {
@@ -256,9 +258,9 @@ probe kernel.function("nfsd3_proc_write").return!,
     offset = $argp->offset
     stable = $argp->stable
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dfhfull, count, offset, stable,
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 probe nfsd.write {
@@ -311,9 +313,9 @@ probe kernel.function("nfsd3_proc_read").return!,
     offset = $argp->offset
     vlen = $argp->vlen
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dfhfull, count, offset, vlen,
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 probe nfsd.read {
@@ -333,9 +335,9 @@ probe nfsd.read.return {
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, kernel_int($count), $offset,
-	   $vlen, begin, end, end - begin, $return)
+	   $vlen, begin, end, $return)
 }
 
 probe nfsd.close {
@@ -349,7 +351,7 @@ probe nfsd.close.return {
     delete elapsed[tid(), probefunc()]
 
     printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
-           proc(), probefunc(), __file_filename($filp), begin, end, end - begin)
+           proc(), probefunc(), __file_filename($filp), begin, end, $return)
 }
 
 /**
@@ -383,9 +385,9 @@ probe kernel.function("nfsd3_proc_renane").return!,
     _fname = kernel_string_n($argp->fname, $argp->flen)
     _tname = kernel_string_n($argp->tname, $argp->tlen)
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dffhfull, dtfhfull, _fname, _tname,
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 probe nfsd.rename {
     elapsed[tid(), probefunc()] = now()
@@ -412,9 +414,9 @@ probe nfsd.rename.return {
     _fname = kernel_string_n($fname, $flen)
     _tname = kernel_string_n($tname, $tlen)
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, dtfhfull, _fname, _tname,
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 /**
@@ -441,9 +443,8 @@ probe kernel.function("nfsd3_proc_remove").return!,
 
     _name = kernel_string_n($argp->name, $argp->len)
 
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, _name, begin, end, end - begin,
-	   $return)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, _name, begin, end, $return)
 }
 
 probe kernel.function("nfsd3_proc_rmdir")!,
@@ -466,9 +467,8 @@ probe kernel.function("nfsd3_proc_rmdir").return!,
 
     _name = kernel_string_n($argp->name, $argp->len)
 
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhfull, _name, begin, end, end - begin,
-	   $return)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhfull, _name, begin, end, $return)
 }
 
 probe nfsd.unlink {
@@ -489,9 +489,9 @@ probe nfsd.unlink.return {
 
     filename = kernel_string_n($fname, $flen)
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, filename, ftype($type),
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 /**
@@ -524,9 +524,9 @@ probe kernel.function("nfsd3_proc_link").return!,
     }
 
     new_name = kernel_string_n($argp->tname, $argp->tlen)
-    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), old_name, target_dir, new_name,
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 probe kernel.function("nfsd_link")!,
@@ -594,9 +594,9 @@ probe kernel.function("nfsd3_proc_symlink").return!,
         fh_name = __complete_path(dfhp)
     }
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dirfh_name, _fname, _tname, fh_name,
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 probe kernel.function("nfsd_symlink")!,
@@ -653,9 +653,8 @@ probe kernel.function("nfsd3_proc_readlink").return!,
         dfhp_name = __complete_path(dfhp)
     }
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhp_name, $resp->len,
-	   begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, $resp->len, begin, end, $return)
 }
 
 probe kernel.function("nfsd_readlink")!,
@@ -702,9 +701,8 @@ probe kernel.function("nfsd3_proc_readdir").return!,
         dfhp_name = __complete_path(dfhp)
     }
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhp_name,
-	   begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, begin, end, $return)
 }
 
 probe kernel.function("nfsd_readdir")!,
@@ -751,8 +749,8 @@ probe kernel.function("nfsd3_proc_readdirplus").return!,
         dfhp_name = __complete_path(dfhp)
     }
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhp_name, begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, begin, end, $return)
 }
 
 /** OPEN */
@@ -806,9 +804,8 @@ probe kernel.function("nfsd3_proc_access").return!,
         dfhp_name = __complete_path(dfhp)
     }
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhp_name, $resp->access,
-	   begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, $resp->access, begin, end, $return)
 }
 
 probe kernel.function("nfsd_access")!,
@@ -829,9 +826,9 @@ probe kernel.function("nfsd_access").return!,
         fhpfull = __complete_path(fhp)
     }
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), fhpfull, kernel_int($access),
-	   begin, end, end - begin, $return)
+	   begin, end, $return)
 }
 
 /**
@@ -870,9 +867,9 @@ probe kernel.function("nfsd3_proc_mknod").return!,
         fh_name = __complete_path(dfhp)
     }
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d> \n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dirfh_name, fh_name, _name, _type, _major,
-	   _minor, begin, end, end - begin, $return)
+	   _minor, begin, end, $return)
 }
 
 probe kernel.function("nfsd3_proc_mkdir")!,
@@ -896,9 +893,8 @@ probe kernel.function("nfsd3_proc_mkdir").return!,
 
     _name = kernel_string_n($argp->name, $argp->len)
 
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dirfh_name, _name,
-	   begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dirfh_name, _name, begin, end, $return)
 }
 
 probe kernel.function("nfsd3_proc_create")!,
@@ -923,9 +919,8 @@ probe kernel.function("nfsd3_proc_create").return!,
     _name = kernel_string_n($argp->name, $argp->len)
     cmode = $argp->createmode
 
-    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dirfh_name, _name, cmode,
-	   begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dirfh_name, _name, cmode, begin, end, $return)
 }
 
 #FIXME: iap has another field. include them?
@@ -951,9 +946,9 @@ probe nfsd.create.return {
     begin = elapsed[tid(), probefunc()]
     delete elapsed[tid(), probefunc()]
 
-    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+    printf("<%s> <%s> <%s> <%s> <%s> <%d> <%d> <%d> <%d>\n",
            proc(), probefunc(), fhpfull, filename, ftype($type), iap_valid,
-	   iap_mode, begin, end, end - begin)
+	   iap_mode, begin, end, $return)
 }
 
 /**
@@ -981,9 +976,8 @@ probe kernel.function("nfsd3_proc_commit").return!,
     _count = $argp->count
     _offset = $argp->offset
 
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
-	   proc(), probefunc(), dfhp_name, _count, _offset,
-	   begin, end, end - begin, $return)
+    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
+	   proc(), probefunc(), dfhp_name, _count, _offset, begin, end, $return)
 }
 probe nfsd.commit {
     #NFS server committing all pending writes to stable storage
@@ -1010,5 +1004,5 @@ probe nfsd.commit.return {
 
     printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
            proc(), probefunc(), dfhfull, $count, $offset,
-	   begin, end, end - begin)
+	   begin, end, $return)
 }
