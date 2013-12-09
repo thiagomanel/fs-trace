@@ -102,7 +102,7 @@ probe kernel.function("nfsd3_proc_setattr")!,
     igid = @cast(iattr, "iattr")->ia_gid
     imode = @cast(iattr, "iattr")->ia_mode
 
-    fh = & @cast($argp, "nfsd3_sattrargs", "kernel:nfsd")->fh
+    fh = & @cast($resp, "nfsd3_attrstat", "kernel:nfsd")->fh
     dfh = @cast(fh, "svc_fh")->fh_dentry
 
     dfhfull = "null"
@@ -122,7 +122,7 @@ probe kernel.function("nfsd3_proc_setattr").return!,
     begin = proc_elapsed[tid(), probefunc()]
     delete proc_elapsed[tid(), probefunc()]
 
-    fh = & @cast($argp, "nfsd3_sattrargs", "kernel:nfsd")->fh
+    fh = & @cast($resp, "nfsd3_attrstat", "kernel:nfsd")->fh
     dfh = @cast(fh, "svc_fh")->fh_dentry
 
     dfhfull = "null"
@@ -258,20 +258,6 @@ probe kernel.function("nfsd3_proc_read").return!,
     printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dfhfull, count, offset, vlen,
 	   begin, end, $return)
-}
-
-probe nfsd.close {
-    elapsed[tid(), probefunc()] = now()
-}
-probe nfsd.close.return {
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=3.2#L800
-    //FIXME did not receive a close, we miss a test to this probe
-    end = now()
-    begin = elapsed[tid(), probefunc()]
-    delete elapsed[tid(), probefunc()]
-
-    printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
-           proc(), probefunc(), __file_filename($filp), begin, end, $return)
 }
 
 /**
@@ -512,35 +498,6 @@ probe kernel.function("nfsd3_proc_readdirplus").return!,
 
     printf("<%s> <%s> <%s> <%d> <%d> <%d>\n",
 	   proc(), probefunc(), dfhp_name, begin, end, $return)
-}
-
-/** OPEN */
-#FIXME: we are missing $type in open calls
-probe nfsd.open {
-    #NFS server opening a file for client
-    elapsed[tid(), probefunc()] = now()
-}
-probe nfsd.open.return {
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c#L773
-    #http://lxr.free-electrons.com/source/fs/nfsd/vfs.c?v=3.2#L733
-    end = now()
-    begin = elapsed[tid(), probefunc()]
-    delete elapsed[tid(), probefunc()]
-
-    fhp =  @cast($fhp, "svc_fh")->fh_dentry
-    fhpfull = "null"
-    if (fhp) {
-        fhpfull = __complete_path(fhp)
-    }
-
-    _access = -1
-    if (@defined($access)) {
-       //FIXME kernel_int ?
-        _access = $access
-    }
-    printf("<%s> <%s> <%s> <%d> <%d> <%d> <%d> <%d>\n",
-           proc(), probefunc(), fhpfull, _access,
-	   begin, end, end - begin, $return)
 }
 
 /**
