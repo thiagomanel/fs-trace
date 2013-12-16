@@ -41,7 +41,7 @@ function tracer_start() {
 	else
 		mkdir -p $installdir/logs/systemtap_logs/$HOSTNAME
 		echo "Starting tracer...";
-		stap -DSTP_NO_OVERLOAD -DMAXMAPENTRIES=10000 -F -o $installdir/logs/systemtap_logs/$HOSTNAME/$(date +%Y%m%d%H%M%S)-$HOSTNAME.log -S 100 $installdir/nfs/nfsd.stp 2> $installdir/tmp/tracer.log $> $PID_FILE;
+		stap -DSTP_NO_OVERLOAD -DMAXMAPENTRIES=10000 -F -o $installdir/logs/systemtap_logs/$HOSTNAME/$(date +%Y%m%d%H%M%S)-$HOSTNAME.log -S 100 $installdir/nfs/nfsd_proc.stp 2> $installdir/tmp/tracer.log $> $PID_FILE;
 		if [ $? == 0 ]; then
 			chown tracer.lsd -R $installdir/tmp;
 			echo "Tracer stated with success.";
